@@ -1,92 +1,93 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { authService } from '../services/AuthService';
-import type { UserProfile } from '../types/auth';
-import { configService } from '../services/ConfigService';
+import { googleLogout, useGoogleLogin, type TokenResponse } from '@react-oauth/google';
+import { config } from '../config/appConfig';
+
+interface User {
+    email: string;
+    name: string;
+    picture: string;
+    accessToken: string;
+}
 
 interface AuthContextType {
-    user: UserProfile | null;
+    user: User | null;
+    login: () => void;
+    logout: () => void;
+    isAuthenticated: boolean;
     isLoading: boolean;
-    signIn: () => void;
-    signOut: () => void;
-    error: string | null;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [user, setUser] = useState<UserProfile | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [user, setUser] = useState<User | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
 
+    // Restore session from localStorage on mount (simple persistence)
     useEffect(() => {
-        let mounted = true;
-
-        const initAuth = async () => {
-            // Wait for Google Script
-            let attempts = 0;
-            while (!window.google && attempts < 20) {
-                await new Promise(r => setTimeout(r, 500));
-                attempts++;
-            }
-
-            if (!window.google) {
-                if (mounted) setError('Google Sign-In script failed to load.');
-                return;
-            }
-
-            try {
-                const config = await configService.getConfig();
-                console.log('Config loaded:', config); // Debug log
-
-                if (config.clientId) {
-                    authService.init(config.clientId, async (tokenResp) => {
-                        const profile = await authService.fetchUserProfile(tokenResp.access_token);
-                        if (profile) {
-                            setUser(profile);
-                            setError(null);
-                        } else {
-                            setError('User not allowed.');
-                        }
-                    });
-                    console.log('AuthService initialized');
-                } else {
-                    console.error('Client ID is missing in config');
-                    if (mounted) setError('Client ID is missing in configuration.');
-                }
-            } catch (e) {
-                console.error(e);
-                if (mounted) setError('Failed to initialize authentication.');
-            } finally {
-                if (mounted) setIsLoading(false);
-            }
-        };
-        initAuth();
-        return () => { mounted = false; };
+        const storedUser = localStorage.getItem('user_session');
+        if (storedUser) {
+            setUser(JSON.parse(storedUser));
+        }
     }, []);
 
-    const signIn = () => {
-        if (!authService.isInitialized()) {
-            console.error('AuthService not initialized. Client ID:', configService, 'Google:', !!window.google);
-            alert('Auth Error: Service not ready. If you just reloaded, wait a moment. Check console for details.');
-            return;
-        }
-        authService.requestAccessToken();
-    };
+    const login = useGoogleLogin({
+        onSuccess: async (tokenResponse: TokenResponse) => {
+            setIsLoading(true);
+            try {
+                // Fetch user info with the access token
+                const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                    headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
+                });
+                const userInfo = await userInfoResponse.json();
 
-    const signOut = () => {
-        // Revoke?
+                if (userInfo.email !== config.allowedEmail) {
+                    alert(`Access Denied: ${userInfo.email} is not in the allowlist.`);
+                    googleLogout();
+                    return;
+                }
+
+                const userData: User = {
+                    email: userInfo.email,
+                    name: userInfo.name,
+                    picture: userInfo.picture,
+                    accessToken: tokenResponse.access_token,
+                };
+
+                setUser(userData);
+                localStorage.setItem('user_session', JSON.stringify(userData));
+            } catch (error) {
+                console.error('Login Failed:', error);
+                alert('Login failed. Please try again.');
+            } finally {
+                setIsLoading(false);
+            }
+        },
+        onError: (error) => {
+            console.error('Login Failed:', error);
+            alert('Login failed.');
+        },
+        scope: config.scopes.join(' '),
+        flow: 'implicit', // Use implicit flow for client-side app
+    });
+
+    const logout = () => {
+        googleLogout();
         setUser(null);
+        localStorage.removeItem('user_session');
     };
 
     return (
-        <AuthContext.Provider value={{ user, isLoading, signIn, signOut, error }}>
+        <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user, isLoading }}>
             {children}
         </AuthContext.Provider>
     );
 };
 
 export const useAuth = () => {
-    const ctx = useContext(AuthContext);
-    if (!ctx) throw new Error('useAuth must be used within AuthProvider');
-    return ctx;
+    const context = useContext(AuthContext);
+    if (!context) {
+        throw new Error('useAuth must be used within an AuthProvider');
+    }
+    return context;
 };
