@@ -9,9 +9,10 @@ interface ExpenseFormProps {
     onSubmit: (data: any, file: File | null) => Promise<void>;
     isSubmitting: boolean;
     type: ExpenseType;
+    title?: string;
 }
 
-export const ExpenseForm: React.FC<ExpenseFormProps> = ({ categories, properties, onSubmit, isSubmitting, type }) => {
+export const ExpenseForm: React.FC<ExpenseFormProps> = ({ categories, properties, onSubmit, isSubmitting, type, title }) => {
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [vendor, setVendor] = useState('');
     const [description, setDescription] = useState('');
@@ -22,6 +23,7 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ categories, properties
     const [isNewProperty, setIsNewProperty] = useState(false);
     const [notes, setNotes] = useState('');
     const [file, setFile] = useState<File | null>(null);
+    const [isProcessing, setIsProcessing] = useState(false);
 
     // Default Category for Charity
     useEffect(() => {
@@ -37,6 +39,67 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ categories, properties
             setCategory('');
         }
     }, [type, categories]);
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const selectedFile = e.target.files ? e.target.files[0] : null;
+        if (!selectedFile) {
+            // Don't clear if they cancelled? Or clear? Usually clear.
+            // But if I have a file and click cancel, browsers often send empty list.
+            // Let's safe-guard: if no file selected, just return (keep old file) or clear?
+            // Standard behavior is clear.
+            // setFile(null); 
+            return;
+        }
+
+        // If PDF, just set it
+        if (selectedFile.type === 'application/pdf') {
+            setFile(selectedFile);
+            return;
+        }
+
+        // If Image, Convert to PDF
+        if (selectedFile.type.startsWith('image/')) {
+            setIsProcessing(true);
+            try {
+                const { jsPDF } = await import('jspdf');
+                const doc = new jsPDF();
+
+                // Load image
+                const imgData = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result as string);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(selectedFile);
+                });
+
+                // Add image to PDF (Fit to page)
+                const imgProps = doc.getImageProperties(imgData);
+                const pdfWidth = doc.internal.pageSize.getWidth();
+                const pdfHeight = doc.internal.pageSize.getHeight();
+                const ratio = imgProps.width / imgProps.height;
+                let w = pdfWidth - 20; // 10mm margin
+                let h = w / ratio;
+                if (h > pdfHeight - 20) {
+                    h = pdfHeight - 20;
+                    w = h * ratio;
+                }
+
+                doc.addImage(imgData, 'JPEG', 10, 10, w, h);
+                const pdfBlob = doc.output('blob');
+                const pdfFile = new File([pdfBlob], `${selectedFile.name.split('.')[0]}.pdf`, { type: 'application/pdf' });
+
+                setFile(pdfFile);
+            } catch (err) {
+                console.error('PDF Conversion Failed', err);
+                alert('Failed to convert image to PDF. Using original image.');
+                setFile(selectedFile);
+            } finally {
+                setIsProcessing(false);
+            }
+        } else {
+            setFile(selectedFile); // Fallback
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -84,7 +147,7 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ categories, properties
 
     return (
         <form onSubmit={handleSubmit} className="card">
-            <h3 style={{ marginBottom: '1rem' }}>New Expense ({type})</h3>
+            <h3 style={{ marginBottom: '1rem' }}>{title || `New Expense (${type})`}</h3>
 
             {isCharity && !hasCharityCat && (
                 <div style={{ padding: '0.5rem', background: '#fee2e2', color: '#b91c1c', borderRadius: '0.5rem', marginBottom: '1rem' }}>
@@ -221,18 +284,50 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ categories, properties
             </div>
 
             <div className="input-group">
-                <label>Receipt</label>
+                <label>Receipt - PDF Auto-Convert Active</label>
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <button
+                        type="button"
+                        className="btn"
+                        style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', border: '1px solid var(--border)' }}
+                        onClick={() => document.getElementById('camera-input')?.click()}
+                    >
+                        📷 Take Photo
+                    </button>
+                    <button
+                        type="button"
+                        className="btn"
+                        style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', border: '1px solid var(--border)' }}
+                        onClick={() => document.getElementById('file-input')?.click()}
+                    >
+                        📁 Upload File
+                    </button>
+                </div>
+
+                {/* Hidden Inputs */}
                 <input
+                    id="camera-input"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    style={{ display: 'none' }}
+                    disabled={isProcessing}
+                    onChange={handleFileChange}
+                />
+                <input
+                    id="file-input"
                     type="file"
                     accept="image/*,application/pdf"
-                    capture="environment"
-                    onChange={(e) => setFile(e.target.files ? e.target.files[0] : null)}
+                    style={{ display: 'none' }}
+                    disabled={isProcessing}
+                    onChange={handleFileChange}
                 />
-                {file && <div style={{ fontSize: '0.8rem', marginTop: '0.5rem', color: 'green' }}>Attached: {file.name}</div>}
+                {isProcessing && <div style={{ fontSize: '0.8rem', color: '#ea580c' }}>Processing image to PDF...</div>}
+                {file && !isProcessing && <div style={{ fontSize: '0.8rem', marginTop: '0.5rem', color: 'green' }}>Attached: {file.name}</div>}
             </div>
 
-            <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
-                {isSubmitting ? 'Saving...' : 'Save Expense'}
+            <button type="submit" className="btn btn-primary" disabled={isSubmitting || isProcessing}>
+                {isSubmitting ? 'Saving...' : (isProcessing ? 'Processing PDF...' : 'Save Expense')}
             </button>
         </form>
     );

@@ -23,13 +23,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
-    // Restore session from localStorage on mount (simple persistence)
-    useEffect(() => {
-        const storedUser = localStorage.getItem('user_session');
-        if (storedUser) {
-            setUser(JSON.parse(storedUser));
-        }
-    }, []);
+    // We removed robust persistence because tokens expire in 1 hour.
+    // Ideally we would refresh token, but for this MVP, forcing re-login on refresh is safer/easier.
+    // useEffect(() => {
+    //     const storedUser = localStorage.getItem('user_session');
+    //     if (storedUser) {
+    //         setUser(JSON.parse(storedUser));
+    //     }
+    // }, []);
 
     const login = useGoogleLogin({
         onSuccess: async (tokenResponse: TokenResponse) => {
@@ -55,7 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 };
 
                 setUser(userData);
-                localStorage.setItem('user_session', JSON.stringify(userData));
+                // localStorage.setItem('user_session', JSON.stringify(userData));
             } catch (error) {
                 console.error('Login Failed:', error);
                 alert('Login failed. Please try again.');

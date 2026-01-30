@@ -49,22 +49,25 @@ export class SheetService {
 
             for (let i = 0; i < rows.length; i++) {
                 const cellValue = rows[i][0]; // Column A
-                stopIndex = 2 + i;
+                // console.log(`Row ${i+2}: ${cellValue}`); // Debug log
 
-                // Stop Condition 1: Blank cell
+                // Stop Condition 1: Blank cell - SKIP instead of BREAK (unless consecutive? No, just skip)
                 if (!cellValue || cellValue.trim() === '') {
-                    stopReason = 'BLANK';
-                    break;
+                    // console.log('Skipping blank row');
+                    continue;
                 }
 
                 // Stop Condition 2: "Annual Total"
                 if (cellValue.trim().toLowerCase() === 'annual total') {
+                    console.log('Found Annual Total at row', i + 2);
                     stopReason = 'ANNUAL_TOTAL';
                     break;
                 }
 
                 categories.push(cellValue.trim());
             }
+
+            console.log('Loaded categories:', categories); // Explicit log for user to check
 
             return {
                 categories,

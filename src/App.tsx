@@ -47,8 +47,12 @@ function App() {
 
           setLists(listResult);
 
-        } catch (e) {
+        } catch (e: any) {
           console.error("Data load failed", e);
+          if (e.message && e.message.includes('401')) {
+            alert('Session expired. Please sign in again.');
+            logout();
+          }
         }
       };
       loadData();
@@ -101,7 +105,10 @@ function App() {
       }
 
       if (data.type === 'Schedule C') {
-        await sheetService.appendBusinessExpense(saveData);
+        await sheetService.appendBusinessExpense({
+          ...saveData,
+          businessUse: saveData.percentage
+        });
       } else if (data.type === 'Schedule E') {
         await sheetService.appendOtherExpense('Schedule E – Rental', saveData);
       } else if (data.type === 'Schedule A') {
@@ -147,6 +154,13 @@ function App() {
     }
   };
 
+  const TAB_TITLES: Record<string, string> = {
+    'schedule-c': 'Schedule C - Business',
+    'schedule-e': 'Schedule E - Rental',
+    'schedule-a': 'Schedule A - Charity',
+    'diagnostics': 'Diagnostics'
+  };
+
   return (
     <div className="app">
       <header className="header">
@@ -172,7 +186,7 @@ function App() {
                 }}
                 onClick={() => setActiveTab(tab)}
               >
-                {tab.replace('schedule-', 'Sched ').replace('diagnostics', 'Diag').toUpperCase()}
+                {TAB_TITLES[tab]}
               </button>
             ))}
           </div>
@@ -186,6 +200,7 @@ function App() {
             onSubmit={handleSave}
             isSubmitting={isSaving}
             type={getExpenseType()}
+            title={TAB_TITLES[activeTab]}
           />
         )}
 
