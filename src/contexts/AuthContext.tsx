@@ -42,7 +42,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 });
                 const userInfo = await userInfoResponse.json();
 
-                if (userInfo.email !== config.allowedEmail) {
+                if (!config.allowedEmails.includes(userInfo.email)) {
                     alert(`Access Denied: ${userInfo.email} is not in the allowlist.`);
                     googleLogout();
                     return;
